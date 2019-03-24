@@ -14,7 +14,8 @@ import socket
 #
 # Global variables
 #
-
+username=""				#This is the name of the user
+userStatus="START"			#This is the status of the user: START, NAMED, JOINED,CONNECTED, TERMINATED.
 
 
 #
@@ -38,9 +39,21 @@ def sdbm_hash(instr):
 #
 
 def do_User():
-	outstr = "\n[User] username: "+userentry.get()
-	CmdWin.insert(1.0, outstr)
-	userentry.delete(0, END)
+	global userStatus
+	if userentry.get():												#userentry.get() is not empty 
+		if userStatus != "JOINED" and userStatus != "CONNECTED":	#The user hasn't joined any chatroom
+			global username
+			username = userentry.get()						#Store the input name in the global variable
+			userStatus = "NAMED"									#Changed the userStatus to NAMED
+			outstr = "\n[User] username: "+username					#Print the username message in command window
+			CmdWin.insert(1.0, outstr)
+			userentry.delete(0, END)
+
+		else:
+			CmdWin.insert(1.0, "\nYou have joined a chatroom. Cannot change your name!")		#Cannot change name after joining a chatroom
+	else:
+		CmdWin.insert(1.0, "\nPlease enter your name")					#The user didn't not enter username
+
 
 
 def do_List():
