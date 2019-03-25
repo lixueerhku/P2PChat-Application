@@ -14,9 +14,13 @@ import socket
 #
 # Global variables
 #
-username=""				#This is the name of the user
+username=""					#This is the name of the user
 userStatus="START"			#This is the status of the user: START, NAMED, JOINED,CONNECTED, TERMINATED.
-
+roomServerSkt = ""			#This is the chatroom server socket
+serverIP = ""				#The IP address of the Room server
+serverPort = ""				#The port number listened by the Room server,
+myPort =""					#The listening port number used by the P2PChat program
+							#python3 P2PChat-UI.py 10.66.169.107 32340 66666
 
 #
 # This is the hash function for generating a unique
@@ -43,7 +47,7 @@ def do_User():
 	if userentry.get():												#userentry.get() is not empty 
 		if userStatus != "JOINED" and userStatus != "CONNECTED":	#The user hasn't joined any chatroom
 			global username
-			username = userentry.get()						#Store the input name in the global variable
+			username = userentry.get()								#Store the input name in the global variable
 			userStatus = "NAMED"									#Changed the userStatus to NAMED
 			outstr = "\n[User] username: "+username					#Print the username message in command window
 			CmdWin.insert(1.0, outstr)
@@ -57,7 +61,32 @@ def do_User():
 
 
 def do_List():
-	CmdWin.insert(1.0, "\nPress List")
+	msg = "L::\r\n"										#List request. To get the list of active chatroom groups.
+	try:
+		roomServerSkt.send(msg.encode("ascii"))			#Send list request to room server
+		res = roomServerSkt.recv(1024)					#Get respond from room server
+		res = str(res.decode("ascii"))
+		if res:
+			if res[0] == 'G':							#Normal message
+				res = res[2:-4]							#Get substring: Start form the third character and remove the last 4 characters, i.e. "::\r\n".
+				if len(res) > 0:						#One or more active chatrooms
+					rooms = res.split(":")				#Store each chatroom's name into a list
+					CmdWin.insert(1.0, "\nActive chatroom list:")	#Print out all the active chatrooms
+					for room in rooms:
+						CmdWin.insert(1.0, "\n\t"+room)
+				else:
+					CmdWin.insert(1.0, "\nThere is no active chatroom")
+			elif res[0] == 'F': 						#Error message from the server
+				res = res[2:-4]
+				CmdWin.insert(1.0, "\nFetching chatroom list error: " + res)
+
+		else:											#If we don't get response, there is a socket error
+			raise socket.error("Socket Error")	
+	except socket.error as err:							#There is an error when connecting to room server
+		CmdWin.insert(1.0, "\nConnection to room server Error")
+		roomServerSkt.close()							#Close current room server socket
+		_thread.start_new_thread (roomServerConnect, (do_List, ))		#Start a new thread to make a connection with the room server
+
 
 
 def do_Join():
@@ -129,8 +158,30 @@ def main():
 	if len(sys.argv) != 4:
 		print("P2PChat.py <server address> <server port no.> <my port no.>")
 		sys.exit(2)
+	else:
+		global serverIP
+		global serverPort 
+		global myPort 
+		
+		serverIP = sys.argv[1]
+		serverPort = sys.argv[2]
+		myPort= sys.argv[3]
+		serverConnect()
 
 	win.mainloop()
+
+def serverConnect():
+	global serverIP
+	global serverPort
+	global myPort
+	global roomServerSkt
+	
+	try:
+		roomServerSkt = socket.socket()
+		roomServerSkt.connect((serverIP, int(serverPort)))
+	except socket.error as emsg:
+		CmdWin.insert(1.0, "\nConnecting to Server Error")
+		sys.exit(1)
 
 if __name__ == "__main__":
 	main()
