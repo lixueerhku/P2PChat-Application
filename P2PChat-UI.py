@@ -12,6 +12,8 @@ import sys
 import socket
 import _thread
 from itertools import islice
+import time
+import datetime
 
 #
 # Global variables
@@ -25,6 +27,7 @@ listeningPort = ""			#The listening port number used by the P2PChat program
 myIP = ""					#The IP address of the client socket
 roomname=""					#This is the chatroom's name
 memberList=[]				#This is the list of the members in the chatroom
+memberHashs=[]				#This is array storing the hash values for each member of the group
 memberListHash=""			#This is a uniquely identified hash value for the membership list;
 forwardLink = ()			#This is a tuple containing information of the forward linked client
 
@@ -77,16 +80,16 @@ def do_List():
 				res = res[2:-4]										#Get substring: Start form the third character and remove the last 4 characters, i.e. "::\r\n".
 				if len(res) > 0:									#One or more active chatrooms
 					rooms = res.split(":")							#Store each chatroom's name into a list
-					CmdWin.insert(1.0, "\nActive chatroom list:")	#Print out all the active chatrooms
 					for room in rooms:
 						CmdWin.insert(1.0, "\n\t"+room)
+					CmdWin.insert(1.0, "\nActive chatroom list:")	#Print out all the active chatrooms
 				else:
 					CmdWin.insert(1.0, "\nThere is no active chatroom")
 			elif res[0] == 'F': 									#Error message from the server
 				res = res[2:-4]
 				CmdWin.insert(1.0, "\ndo_List(): Fetching chatroom list error: " + res)
 
-		else:														#If we don't get response, there is a socket error
+		else:														#If we don't get res, there is a socket error
 			raise socket.error("\ndo_List(): Respond is null. Socket Error")	
 	except socket.error as err:										#There is an error when connecting to room server
 		CmdWin.insert(1.0, "\ndo_List(): Sending message Error")
@@ -98,8 +101,6 @@ def chunk(it, size):												#This function split an array into small chuncks
     return iter(lambda: tuple(islice(it, size)), ())
 
 def do_Join():
-	CmdWin.insert(1.0, "\nPress JOIN")
-	
 	global clientSkt
 	global userStatus
 	global username
@@ -128,7 +129,7 @@ def do_Join():
 			clientSkt.send(msg.encode("ascii"))
 			res = clientSkt.recv(1024)
 			res = str(res.decode("ascii"))
-			if res:																#If we get respond sucessfully
+			if res:																#If we get response sucessfully
 				if res[0] == "M":												#Normal message
 					res = res[2:-4]												#Get substring: Start form the third character and remove the last 4 characters, i.e. "::\r\n".
 					mList = res.split(":")										#Get members in the chatroom
@@ -138,10 +139,10 @@ def do_Join():
 					userentry.delete(0, END)									#Clear the input entry
 					
 					CmdWin.insert(1.0, "\nJoined chatroom: "+roomname)
-					CmdWin.insert(1.0, "\nMembers in this chatroom:")
 					for member in chunk(mList[1:], 3):							#Get rid of the "MSID" in the list and chunk it into a list of smaller lists: [username, IP, port]
 						memberList.append(member)
 						CmdWin.insert(1.0, "\n\t"+str(member))					#Print out membership list
+					CmdWin.insert(1.0, "\nMembers in this chatroom:")
 
 					_thread.start_new_thread (keepAliveProcedure, ())			#Start a new thread runnning the keepAliveProcedure
 					_thread.start_new_thread (serverProcedure, ())				#Start a new thread runnning the serverProcedure
@@ -159,21 +160,78 @@ def do_Join():
 			clientSkt.close()													#Close current client socket
 			_thread.start_new_thread (serverConnect, (do_Join, ))				#Start a new thread to make a connection with the room server and call do_Join again
 			
-	
+#This function resends the JOIN request to the Room server in every 20 seconds
+#in order to indicate the P2PChat peer is still an active member in that chatroom group.
 def keepAliveProcedure():
-	CmdWin.insert(1.0, "\nkeepAliveProcedure:")
-	while clientSkt:						#Indicate this P2PChat peer is still an active member
-		time.sleep(20)						#Every 20 seconds
-		#updateMembersList("Keep Alive")				
-		if clientStatus == "JOINED" or not forwardLink:		#If client is still not CONNECTED, keep looking for a peer
+	global userStatus
+	CmdWin.insert(1.0, "\nkeepAliveProcedure")
+	while clientSkt:										#Indicate this P2PChat peer is still an active member
+		updateMemberList("keepAliveProcedure")				#Perform JOIN and update membership list		
+		if userStatus == "JOINED" or not forwardLink:		#If client is JOINED but not CONNECTED, keep looking for a peer
 			global memberList
 			findP2PPeer(memberList)
-	
+		time.sleep(20)										#Every 20 seconds
+
+#This function resends the JOIN request to the Room server.
+#It also handles the updated membership list.	
+def updateMemberList(*src):
+	global clientSkt
+	global username
+	global roomname
+	global myIP
+	global listeningPort
+	global memberList
+	global memberListHash 
+	msg = "J:"+roomname+":"+username+":"+myIP+":"+listeningPort+"::\r\n"	#Generate JOIN request
+	try:
+		clientSkt.send(msg.encode("ascii"))
+		res = clientSkt.recv(1024)
+		res = str(res.decode("ascii"))
+		if res:
+			if res[0] == 'M':												#Normal message
+				now = datetime.datetime.now()								#Get current time
+				print(src, " updateMemberList at ", now.strftime("%Y-%m-%d %H:%M:%S"))
+				res = res[2:-4]
+				mList = res.split(":")
+				if memberListHash != mList[0]:								#If the membership list has been changed
+					memberListHash = mList[0]								#Update stored hash value
+					memberList = []
+					for member in chunk(mList[1:], 3):
+						memberList.append(member)
+					print("Membership list is updated")
+					updateMemberHashs(memberList)								#Calculate hash values for each member in the group
+				return True
+			elif res[0] == 'F':												#Get an error message
+				res = res[2:-4]
+				CmdWin.insert(1.0, "\nupdateMemberList() JOIN Error")
+				return False
+		else:
+			return False
+	except:
+		CmdWin.insert(1.0, "\ndo_Join(): Sending message Error")
+		clientSkt.close()	
+		_thread.start_new_thread (serverConnect, (updateMemberList, ))		#Start a new thread to make a connection with the room server
+
+
+#This function calculates a hash value for each member in the list and store them in memberHashs
+def updateMemberHashs(memberList):
+	global memberHashs 
+	global username
+	memberHashs = []
+	for member in memberList:
+		if member[0] == username:										#Find the information (name, IP, Port) of the current user						
+			myInfo = member
+		memInfo = ""									
+		for info in member:
+			memInfo = memInfo + info									#concatenate the member information
+		memberHashs.append((member,sdbm_hash(memInfo)))					#Append (the member info, hash value)to the memberHashs array
+	memberHashs = sorted(memberHashs, key=lambda tup: tup[1])			#sort the array by the hash value
+	return myInfo
 
 def serverProcedure():
 	CmdWin.insert(1.0, "\nserverProcedure()")
 
-def findP2PPeer(membersList):
+def findP2PPeer(memberList):
 	CmdWin.insert(1.0, "\nfindP2PPeer()")
 
 def do_Send():
