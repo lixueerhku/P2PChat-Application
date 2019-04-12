@@ -14,6 +14,7 @@ import _thread
 from itertools import islice
 import time
 import datetime
+import threading
 
 #
 # Global variables
@@ -45,6 +46,37 @@ def sdbm_hash(instr):
 	for c in instr:
 		hash = int(ord(c)) + (hash << 6) + (hash << 16) - hash
 	return hash & 0xffffffffffffffff
+	
+class theListenThread(threading.Thread): #listen to Poke
+	def __init__(self):
+		threading.Thread.__init__(self)
+		
+	def run(self):
+		udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM) #create a UDP socket
+		for member in memberList: 
+			if member[0] == username: #bind to address and port
+				udp_address=member[1]
+				udp_port=member[2]
+				udp_socket.bind((udp_address, int(udp_port)))
+				udp_size = 1024
+				udp_respond =  "A::\r\n"
+		while(True):
+			try:
+				udp_client_pair = udp_socket.recvfrom(udp_size)
+			except socket.error as err:
+				print("Error:", err)
+			
+			
+			if udp_client_pair:
+				CmdWin.insert(1.0, "\n")
+				udp_client_msg = udp_client_pair[0].decode("ascii")
+				print(str(udp_client_msg))
+				udp_client_ip = udp_client_pair[1]
+				udp_client_name = udp_client_msg.split("::")[0].split(':')[2]
+				CmdWin.insert(1.0, "\nReceived a poke from " + udp_client_name)
+				MsgWin.insert(1.0, "\n [" + udp_client_name+ "]Poke ")
+				udp_socket.sendto(udp_respond.encode("ascii"), udp_client_ip) #send reply
+
 
 
 #
@@ -147,6 +179,9 @@ def do_Join():
 					_thread.start_new_thread (keepAliveProcedure, ())			#Start a new thread runnning the keepAliveProcedure
 					_thread.start_new_thread (serverProcedure, ())				#Start a new thread runnning the serverProcedure
 					findP2PPeer(memberList)										#Select a P2PChat peer for initiating a TCP connection
+					threadListen = theListenThread()
+					threadListen.start()
+
 
 				elif res[0] == "F":												#Get an error message from the server
 					res = res[2:-4]
@@ -220,7 +255,7 @@ def updateMemberHashs(memberList):
 	memberHashs = []
 	for member in memberList:
 		if member[0] == username:										#Find the information (name, IP, Port) of the current user						
-			myInfo = member
+			myInfo = member 
 		memInfo = ""									
 		for info in member:
 			memInfo = memInfo + info									#concatenate the member information
@@ -239,7 +274,46 @@ def do_Send():
 
 
 def do_Poke():
-	CmdWin.insert(1.0, "\nPress Poke")
+	global nickname
+	if userStatus == "JOINED" or userStatus == "CONNECTED": 
+		if userentry.get():															#Check whether the user has input the nickname
+			nickname = userentry.get()
+			userentry.delete(0, END)
+			if nickname==username:
+				CmdWin.insert(1.0, "\nError: You cannot poke yourself!")
+			else:
+				exist=True
+				for member in memberList:
+					if member[0] == nickname:
+						msg = "K:"+roomname+":"+username+"::\r\n"
+						#CmdWin.insert(1.0, "\n\t"+msg)
+						exist=False
+						addressOfPeer=member[1]
+						portOfPeer=member[2]
+						#CmdWin.insert(1.0, "\n\t hello"+str(addressOfPeer)+str(portOfPeer))
+						sockPoke=socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create a UDP socket
+						sockPoke.sendto(msg.encode("ascii"), (addressOfPeer, int(portOfPeer)))
+						CmdWin.insert(1.0, "\nA Poke has been sent successfully to "+nickname)
+						
+						sockPoke.settimeout(2) #set 2s timeout
+						try:
+							udp_server_respond = sockPoke.recv(1024).decode("ascii")
+							CmdWin.insert(1.0, "\nACK Received from "+ nickname)
+						except socket.timeout as e:
+							CmdWin.insert(1.0, "\nTime out!")
+			if exist:
+				CmdWin.insert(1.0, "\nError"+nickname+"is not in the chatroom!")
+		
+		else:#print all pees in the room if there's no nickname input
+			CmdWin.insert(1.0, "\n\tTo Whom do you want to send the Poke?")
+			for member in memberList:
+				CmdWin.insert(1.0, "\n\t"+member[0])
+		
+		
+		
+	if userStatus != "JOINED" and userStatus != "CONNECTED": 
+		CmdWin.insert(1.0, "\nError: You should join a chatroom first!")
+				
 
 
 def do_Quit():
