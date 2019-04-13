@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 
-# Student name and No.:
-# Student name and No.:
-# Development platform:
-# Python version:
-# Version:
+# Student name and No.: Li Xueer 3035332335
+# Student name and No.: Liu Yujie 3035329754
+# Development platform: Visual Studio Code
+# Python version: Python 3.6.4 
+# Version: Stage1 and 2 completed
+# Date: 2019-April-13
 
 
 from tkinter import *
