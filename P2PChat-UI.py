@@ -22,7 +22,6 @@ import traceback
 username=""					#This is the name of the user
 userStatus="START"			#This is the status of the user: START, NAMED, JOINED,CONNECTED, TERMINATED.
 sktToRoomServer = ""		#This is the client socket connected to the room server
-UDPServer = ""				#This is the UDP socket for the user
 serverIP = ""				#The IP address of the Room server
 serverPort = ""				#The port number listened by the Room server,
 listeningPort = ""			#The listening port number used by the P2PChat program, getsockaddrarg: port must be 0-65535.
@@ -59,53 +58,53 @@ def sdbm_hash(instr):
 #
 def do_User(): 
 	global userStatus
-	if userentry.get():												#userentry.get() is not empty 
-		if userStatus != "JOINED" and userStatus != "CONNECTED":	#The user hasn't joined any chatroom
+	if userentry.get():																			#userentry.get() is not empty 
+		if userStatus != "JOINED" and userStatus != "CONNECTED":								#The user hasn't joined any chatroom
 			global username
 			global myHashID
 			global myIP
 			global listeningPort
-			username = userentry.get()								#Store the input name in the global variable
-			userStatus = "NAMED"									#Changed the userStatus to NAMED
-			outstr = "\n[User] username: "+username					#Print the username message in command window
-			myHashID = sdbm_hash(username+myIP+listeningPort)					 #Calculate my hash ID
+			username = userentry.get()															#Store the input name in the global variable
+			userStatus = "NAMED"																#Changed the userStatus to NAMED
+			outstr = "\n[User] username: "+username												#Print the username message in command window
+			myHashID = sdbm_hash(username+myIP+listeningPort)									#Calculate my hash ID
 			CmdWin.insert(1.0, outstr)
 			userentry.delete(0, END)
 
 		else:
 			CmdWin.insert(1.0, "\nYou have joined a chatroom. Cannot change your name!")		#Cannot change name after joining a chatroom
 	else:
-		CmdWin.insert(1.0, "\nPlease enter your name")				#The user didn't not enter username
+		CmdWin.insert(1.0, "\nPlease enter your name")											#The user didn't not enter username
 
 
 #This function gets the list of chatroom groups registered in the Room server
 def do_List():
-	msg = "L::\r\n"													#List request. To get the list of active chatroom groups.
+	msg = "L::\r\n"																				#List request. To get the list of active chatroom groups.
 	try:
-		sktToRoomServer.send(msg.encode("ascii"))							#Send list request to room server
-		res = sktToRoomServer.recv(1024)									#Get respond from room server
+		sktToRoomServer.send(msg.encode("ascii"))												#Send list request to room server
+		res = sktToRoomServer.recv(1024)														#Get respond from room server
 		res = str(res.decode("ascii"))
 		if res:
-			if res[0] == 'G':										#Normal message
-				res = res[2:-4]										#Get substring: Start form the third character and remove the last 4 characters, i.e. "::\r\n".
-				if len(res) > 0:									#One or more active chatrooms
-					rooms = res.split(":")							#Store each chatroom's name into a list
+			if res[0] == 'G':																	#Normal message
+				res = res[2:-4]																	#Get substring: Start form the third character and remove the last 4 characters, i.e. "::\r\n".
+				if len(res) > 0:																#One or more active chatrooms
+					rooms = res.split(":")														#Store each chatroom's name into a list
 					for room in rooms:
 						CmdWin.insert(1.0, "\n\t"+room)
-					CmdWin.insert(1.0, "\nActive chatroom list:")	#Print out all the active chatrooms
+					CmdWin.insert(1.0, "\nActive chatroom list:")								#Print out all the active chatrooms
 				else:
 					CmdWin.insert(1.0, "\nThere is no active chatroom")
-			elif res[0] == 'F': 									#Error message from the server
+			elif res[0] == 'F': 																#Error message from the server
 				res = res[2:-4]
 				CmdWin.insert(1.0, "\ndo_List(): Fetching chatroom list error: " + res)
 
-		else:														#If we don't get res, there is a socket error
+		else:																					#If we don't get res, there is a socket error
 			raise socket.error("\ndo_List(): Respond is null. Socket Error")	
-	except socket.error as err:										#There is an error when connecting to room server
+	except socket.error as err:																	#There is an error when connecting to room server
 		CmdWin.insert(1.0, "\ndo_List(): Sending message Error")
-		sktToRoomServer.close()											#Close current client socket
+		sktToRoomServer.close()																 	#Close current client socket
 
-		serverConnectThread=threading.Thread(target=serverConnect, args=(do_List, )) #Start a new thread to make a connection with the room server and call do_List again
+		serverConnectThread=threading.Thread(target=serverConnect, args=(do_List, )) 			#Start a new thread to make a connection with the room server and call do_List again
 		serverConnectThread.setDaemon(True)
 		serverConnectThread.start()
 
@@ -127,69 +126,69 @@ def do_Join():
 	global memberList
 	global memberListHash 
 	
-	if username == "": 															#Check whether the user name is set
+	if username == "": 																	 	#Check whether the user name is set
 		CmdWin.insert(1.0, "\nPlease set username before joining chatroom")
 		return
 	
-	if userentry.get():															#Check whether the user has input chatroom's name
+	if userentry.get():																	 	#Check whether the user has input chatroom's name
 		roomname = userentry.get()
 	else:
 		CmdWin.insert(1.0, "\nEnter chatroom's name")
 		return
 
-	if userStatus == "JOINED" or userStatus == "CONNECTED": 					#Check whether the user has joined a chatroom
+	if userStatus == "JOINED" or userStatus == "CONNECTED": 							 	#Check whether the user has joined a chatroom
 		CmdWin.insert(1.0, "\nYou have already joined or connected to a chatroom")
 		return	
 	else:
-		msg = "J:"+roomname+":"+username+":"+myIP+":"+listeningPort+"::\r\n"	#Create Join request
-		try:																	#Try to send JOIN request to room server
+		msg = "J:"+roomname+":"+username+":"+myIP+":"+listeningPort+"::\r\n"			 	#Create Join request
+		try:																			 	#Try to send JOIN request to room server
 			sktToRoomServer.send(msg.encode("ascii"))
 			res = sktToRoomServer.recv(1024)
 			res = str(res.decode("ascii"))
-			if res:																#If we get response sucessfully
-				if res[0] == "M":												#Normal message
-					res = res[2:-4]												#Get substring: Start form the third character and remove the last 4 characters, i.e. "::\r\n".
-					mList = res.split(":")										#Get members in the chatroom
+			if res:																		 	#If we get response sucessfully
+				if res[0] == "M":														 	#Normal message
+					res = res[2:-4]														 	#Get substring: Start form the third character and remove the last 4 characters, i.e. "::\r\n".
+					mList = res.split(":")												 	#Get members in the chatroom
 					
-					memberListHash = mList[0]									#Store unique membership hash
-					userStatus = "JOINED"										#Update the client status to JOINED
-					userentry.delete(0, END)									#Clear the input entry
+					memberListHash = mList[0]											 	#Store unique membership hash
+					userStatus = "JOINED"												 	#Update the client status to JOINED
+					userentry.delete(0, END)											 	#Clear the input entry
 					
 					CmdWin.insert(1.0, "\nJoined chatroom: "+roomname)
-					for member in chunk(mList[1:], 3):							#Get rid of the "MSID" in the list and chunk it into a list of smaller lists: [username, IP, port]
+					for member in chunk(mList[1:], 3):									 	#Get rid of the "MSID" in the list and chunk it into a list of smaller lists: [username, IP, port]
 						memberList.append(member)
-						CmdWin.insert(1.0, "\n\t"+str(member))					#Print out membership list
+						CmdWin.insert(1.0, "\n\t"+str(member))							 	#Print out membership list
 					CmdWin.insert(1.0, "\nMembers in this chatroom:")
 
-					keepAliveThread = threading.Thread(target=keepAliveProcedure)#Start a new thread runnning the keepAliveProcedure
+					keepAliveThread = threading.Thread(target=keepAliveProcedure)		 	#Start a new thread runnning the keepAliveProcedure
 					keepAliveThread.setDaemon(True)					
 					keepAliveThread.start()
 					
-					serverThread = threading.Thread(target=serverProcedure)		#Start a new thread runnning the serverProcedure
+					serverThread = threading.Thread(target=serverProcedure)				 	#Start a new thread runnning the serverProcedure
 					serverThread.setDaemon(True)
 					serverThread.start()
 					
-					findP2PPeer(memberList)										#Select a P2PChat peer for initiating a TCP connection
+					findP2PPeer(memberList)												 	#Select a P2PChat peer for initiating a TCP connection
 					
 					try:
-						threadListen = theListenThread()							#Create a thread for UDP server
-						threadListen.setDaemon(True)								##When it's a daemon thread, the thread terminates when the main  thread terminates.
+						threadListen = theListenThread()									#Create a thread for UDP server
+						threadListen.setDaemon(True)										##When it's a daemon thread, the thread terminates when the main  thread terminates.
 						threadListen.start()
 					except (KeyboardInterrupt, SystemExit):
 						print("\n! Received keyboard interrept, closing threads...")
 
-				elif res[0] == "F":												#Get an error message from the server
+				elif res[0] == "F":															#Get an error message from the server
 					res = res[2:-4]
 					CmdWin.insert(1.0, "\ndo_Join(): Join chatroom Error: " + res)
-			else:																#Send JOIN request to server failed
+			else:																			#Send JOIN request to server failed
 				raise socket.error("\ndo_Join(): Respond is null. Socket Error")	
 
 
-		except socket.error as err:												#There is an error when connecting to room server
+		except socket.error as err:															#There is an error when connecting to room server
 			CmdWin.insert(1.0, "\ndo_Join(): Sending message Error")
 			if sktToRoomServer:
-				sktToRoomServer.close()													#Close current client socket
-			serverConnectThread=threading.Thread(target=serverConnect, args=(do_Join, )) #Start a new thread to make a connection with the room server and call do_Join again
+				sktToRoomServer.close()														#Close current client socket
+			serverConnectThread=threading.Thread(target=serverConnect, args=(do_Join, )) 	#Start a new thread to make a connection with the room server and call do_Join again
 			serverConnectThread.setDaemon(True)
 			serverConnectThread.start()
 			
@@ -198,12 +197,12 @@ def do_Join():
 def keepAliveProcedure():
 	global userStatus
 	CmdWin.insert(1.0, "\nkeepAliveProcedure")
-	while sktToRoomServer:										#Indicate this P2PChat peer is still an active member
-		updateMemberList("keepAliveProcedure")				#Perform JOIN and update membership list		
-		if userStatus == "JOINED" or not forwardLink:		#If client is JOINED but not CONNECTED, keep looking for a peer
+	while sktToRoomServer:																	#Indicate this P2PChat peer is still an active member
+		updateMemberList("keepAliveProcedure")												#Perform JOIN and update membership list		
+		if userStatus == "JOINED" or not forwardLink:										#If client is JOINED but not CONNECTED, keep looking for a peer
 			global memberList
 			findP2PPeer(memberList)
-		time.sleep(20)										#Every 20 seconds
+		time.sleep(20)																		#Every 20 seconds
 
 #This function resends the JOIN request to the Room server.
 #It also handles the updated membership list.	
@@ -215,26 +214,26 @@ def updateMemberList(*src):
 	global listeningPort
 	global memberList
 	global memberListHash 
-	msg = "J:"+roomname+":"+username+":"+myIP+":"+listeningPort+"::\r\n"	#Generate JOIN request
+	msg = "J:"+roomname+":"+username+":"+myIP+":"+listeningPort+"::\r\n"					#Generate JOIN request
 	try:
 		sktToRoomServer.send(msg.encode("ascii"))
 		res = sktToRoomServer.recv(1024)
 		res = str(res.decode("ascii"))
 		if res:
-			if res[0] == 'M':												#Normal message
-				now = datetime.datetime.now()								#Get current time
+			if res[0] == 'M':																#Normal message
+				now = datetime.datetime.now()												#Get current time
 				print(src, " updateMemberList at ", now.strftime("%Y-%m-%d %H:%M:%S"))
 				res = res[2:-4]
 				mList = res.split(":")
-				if memberListHash != mList[0]:								#If the membership list has been changed
-					memberListHash = mList[0]								#Update stored hash value
+				if memberListHash != mList[0]:												#If the membership list has been changed
+					memberListHash = mList[0]												#Update stored hash value
 					memberList = []
 					for member in chunk(mList[1:], 3):
 						memberList.append(member)
 					print("Membership list is updated")
-					updateMemberHashs(memberList)								#Calculate hash values for each member in the group
+					updateMemberHashs(memberList)											#Calculate hash values for each member in the group
 				return True
-			elif res[0] == 'F':												#Get an error message
+			elif res[0] == 'F':																#Get an error message
 				res = res[2:-4]
 				CmdWin.insert(1.0, "\nupdateMemberList() JOIN Error")
 				return False
@@ -246,7 +245,7 @@ def updateMemberList(*src):
 		CmdWin.insert(1.0, "\ndo_Join(): Sending message Error")
 		if sktToRoomServer:
 			sktToRoomServer.close()	
-		serverConnectThread=threading.Thread(target=serverConnect, args=(updateMemberList, )) #Start a new thread to make a connection with the room server and call updateMemberList again
+		serverConnectThread=threading.Thread(target=serverConnect, args=(updateMemberList, ))#Start a new thread to make a connection with the room server and call updateMemberList again
 		serverConnectThread.setDaemon(True)
 		serverConnectThread.start()
 
@@ -270,7 +269,7 @@ def updateMemberHashs(memberList):
 #This function set up a TCP socket for the user so that the user could listen to all the incoming messages
 def serverProcedure():
 	global listeningPort
-	sockfd = socket.socket()					#Create a socket
+	sockfd = socket.socket()																#Create a socket
 	try:
 		sockfd.bind( ('', int(listeningPort)) )	
 	except socket.error as emsg:
@@ -283,28 +282,28 @@ def serverProcedure():
 		msg = str(msg.decode("ascii"))
 		
 		if msg:
-			if msg[0] == 'P':				#Receive a P2P handshaking message
-				msg = msg[2:-4]				#Get useful information
+			if msg[0] == 'P':															 	#Receive a P2P handshaking message
+				msg = msg[2:-4]												  			 	#Get useful information
 				Info = msg.split(":")
 				pRoomname = Info[0]
 				pUsername = Info[1]
 				pIP = Info[2]
 				pPort = Info[3]
 				pMsgID = Info[4]
-				initialPeer = (pUsername, pIP, pPort)		#This is the informaion (name, IP, Port) of the peer who sends the request
+				initialPeer = (pUsername, pIP, pPort)										#This is the informaion (name, IP, Port) of the peer who sends the request
 				
 				global memberList		
 				idx = -1	
 				try:					
-					idx = memberList.index(initialPeer)									#Check whether the peer is in the member list
-				except ValueError:														#If we can't find the peer, update the member list
+					idx = memberList.index(initialPeer)										#Check whether the peer is in the member list
+				except ValueError:															#If we can't find the peer, update the member list
 					if updateMemberList("Server Procedure find peer"):		
 						try:
-							idx = memberList.index(initialPeer)							#Check again
-						except ValueError:												#Still can't find the peer
+							idx = memberList.index(initialPeer)								#Check again
+						except ValueError:													#Still can't find the peer
 							print("serverProcedure(): Can't find the peer in the member list")
 							idx = -1												
-							conn.close()												#Close the connection 
+							conn.close()													#Close the connection 
 					else:
 						print("serverProcedure(): Can't update member's list")
 						conn.close()
@@ -312,11 +311,11 @@ def serverProcedure():
 					global msgID
 					global backLinks
 					global userStatus
-					res = "S:"+str(msgID)+"::\r\n"										#Create a message indicating the connection is successful
-					conn.send(res.encode("ascii"))										#Reply the peer
+					res = "S:"+str(msgID)+"::\r\n"											#Create a message indicating the connection is successful
+					conn.send(res.encode("ascii"))											#Reply the peer
 					concatInfo = pUsername + pIP + pPort
 					backLinks.append(( (initialPeer, sdbm_hash(concatInfo)) ,conn ))		#Add the new peer to its backLinks 
-					clientStatus = "CONNECTED"											#Update status to CONNECTED 
+					clientStatus = "CONNECTED"												#Update status to CONNECTED 
 		
 					try:
 						listenPeerThread=threading.Thread(target=listenPeer, args=("Backward", conn, ))				##Start a new thread to listen for messages from client
@@ -372,15 +371,15 @@ def listenPeer(linkType, conn):
 			CmdWin.insert(1.0, "\n listenPeer: conn break")
 			break																							#Connection broken
 	#The connection is closed. We need to remove the link
-	if linkType == "Forward":						#If a forward link has been broken, the client is DISCONNECTED, and put back in JOINED state
+	if linkType == "Forward":																				#If a forward link has been broken, the client is DISCONNECTED, and put back in JOINED state
 		CmdWin.insert(1.0, "\n forward link broken")	
-		updateMemberList("Forward Link Broken at listenPeer")				#When a forward link is broken, we update the status and forwardLink 
+		updateMemberList("Forward Link Broken at listenPeer")												#When a forward link is broken, we update the status and forwardLink 
 		global forwardLink
 		global userStatus
 		forwardLink = ()
 		userStatus = "JOINED"
-		findP2PPeer(memberList)						#The clent needs to find a new P2P peer
-	else:								#If back link broken, remove the link from backlinks array
+		findP2PPeer(memberList)																				#The clent needs to find a new P2P peer
+	else:																									#If back link broken, remove the link from backlinks array
 		CmdWin.insert(1.0, "\n backward link broken")	
 		global backLinks
 		for link in backLinks:
@@ -396,13 +395,13 @@ def handshake(peerSocket):
 	global myIP
 	global listeningPort
 	global msgID
-	msg = "P:"+roomname+":"+username+":"+myIP+":"+listeningPort+":"+str(msgID)+"::\r\n" #Create the peer-to-peer handshaking request
+	msg = "P:"+roomname+":"+username+":"+myIP+":"+listeningPort+":"+str(msgID)+"::\r\n" 					#Create the peer-to-peer handshaking request
 	try:
-		peerSocket.send(msg.encode("ascii")) 									#Send request to peer
+		peerSocket.send(msg.encode("ascii")) 																#Send request to peer
 		res = peerSocket.recv(1024)
 		res = str(res.decode("ascii"))
 		if res:
-			if res[0] == 'S':													#S: successfully connected
+			if res[0] == 'S':																				#S: successfully connected
 				return True
 			else:
 				CmdWin.insert(1.0, "\nhandshake failed")	
@@ -451,7 +450,7 @@ def findP2PPeer(memberList):
 					CmdWin.insert(1.0, "\nforward linked to " + memberHashs[start][0][0])			#If success, store connection
 					break
 				else:
-					forwardSkt.close()																	#Try another peer
+					forwardSkt.close()																#Try another peer
 					start = (start+1) % len(memberHashs)
 					continue			
 			else:
@@ -538,16 +537,15 @@ def do_Poke():
 				for member in memberList:
 					if member[0] == nickname:
 						msg = "K:"+roomname+":"+username+"::\r\n"
-						#CmdWin.insert(1.0, "\n\t"+msg)
 						exist=False
 						addressOfPeer=member[1]
 						portOfPeer=member[2]
-						#CmdWin.insert(1.0, "\n\t hello"+str(addressOfPeer)+str(portOfPeer))
-						sockPoke=socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create a UDP socket
+		
+						sockPoke=socket.socket(socket.AF_INET, socket.SOCK_DGRAM) 	#create a UDP socket
 						sockPoke.sendto(msg.encode("ascii"), (addressOfPeer, int(portOfPeer)))
 						CmdWin.insert(1.0, "\nA Poke has been sent successfully to "+nickname)
 						
-						sockPoke.settimeout(2) #set 2s timeout
+						sockPoke.settimeout(2) 										#set 2s timeout
 						try:
 							udp_server_respond = sockPoke.recv(1024).decode("ascii")
 							MsgWin.insert(1.0, "\nYou poked [" + nickname+ "] successfully")
@@ -557,7 +555,7 @@ def do_Poke():
 			if exist:
 				CmdWin.insert(1.0, "\nError: "+nickname+" is not in the chatroom!")
 		
-		else:#print all pees in the room if there's no nickname input
+		else:																		#print all pees in the room if there's no nickname input
 			for member in memberList:
 				CmdWin.insert(1.0, "\n"+member[0])
 			CmdWin.insert(1.0, "\nTo Whom do you want to send the Poke?")
