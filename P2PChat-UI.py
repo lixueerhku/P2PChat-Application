@@ -10,11 +10,11 @@
 from tkinter import *
 import sys
 import socket
-import _thread
 import threading
 from itertools import islice
 import time
 import datetime
+import traceback
 
 #
 # Global variables
@@ -104,7 +104,10 @@ def do_List():
 	except socket.error as err:										#There is an error when connecting to room server
 		CmdWin.insert(1.0, "\ndo_List(): Sending message Error")
 		sktToRoomServer.close()											#Close current client socket
-		_thread.start_new_thread (serverConnect, (do_List, ))		#Start a new thread to make a connection with the room server and call do_List again
+
+		serverConnectThread=threading.Thread(target=serverConnect, args=(do_List, )) #Start a new thread to make a connection with the room server and call do_List again
+		serverConnectThread.setDaemon(True)
+		serverConnectThread.start()
 
 #This function split an array into small chuncks with input size
 def chunk(it, size):												
@@ -123,7 +126,6 @@ def do_Join():
 	global listeningPort
 	global memberList
 	global memberListHash 
-	
 	
 	if username == "": 															#Check whether the user name is set
 		CmdWin.insert(1.0, "\nPlease set username before joining chatroom")
@@ -159,16 +161,22 @@ def do_Join():
 						CmdWin.insert(1.0, "\n\t"+str(member))					#Print out membership list
 					CmdWin.insert(1.0, "\nMembers in this chatroom:")
 
-					_thread.start_new_thread (keepAliveProcedure, ())			#Start a new thread runnning the keepAliveProcedure
-					_thread.start_new_thread (serverProcedure, ())				#Start a new thread runnning the serverProcedure
-					#_thread.start_new_thread (UDPserver, ())					#Start a new thread runnning the UDP server
+					keepAliveThread = threading.Thread(target=keepAliveProcedure)#Start a new thread runnning the keepAliveProcedure
+					keepAliveThread.setDaemon(True)					
+					keepAliveThread.start()
+					
+					serverThread = threading.Thread(target=serverProcedure)		#Start a new thread runnning the serverProcedure
+					serverThread.setDaemon(True)
+					serverThread.start()
+					
 					findP2PPeer(memberList)										#Select a P2PChat peer for initiating a TCP connection
+					
 					try:
-						threadListen = theListenThread()
-						threadListen.daemon=True
+						threadListen = theListenThread()							#Create a thread for UDP server
+						threadListen.setDaemon(True)								##When it's a daemon thread, the thread terminates when the main  thread terminates.
 						threadListen.start()
 					except (KeyboardInterrupt, SystemExit):
-  						print ("\n! Received keyboard interrupt, quitting threads.\n")
+						print("\n! Received keyboard interrept, closing threads...")
 
 				elif res[0] == "F":												#Get an error message from the server
 					res = res[2:-4]
@@ -179,8 +187,11 @@ def do_Join():
 
 		except socket.error as err:												#There is an error when connecting to room server
 			CmdWin.insert(1.0, "\ndo_Join(): Sending message Error")
-			sktToRoomServer.close()													#Close current client socket
-			_thread.start_new_thread (serverConnect, (do_Join, ))				#Start a new thread to make a connection with the room server and call do_Join again
+			if sktToRoomServer:
+				sktToRoomServer.close()													#Close current client socket
+			serverConnectThread=threading.Thread(target=serverConnect, args=(do_Join, )) #Start a new thread to make a connection with the room server and call do_Join again
+			serverConnectThread.setDaemon(True)
+			serverConnectThread.start()
 			
 #This function resends the JOIN request to the Room server in every 20 seconds
 #in order to indicate the P2PChat peer is still an active member in that chatroom group.
@@ -233,8 +244,11 @@ def updateMemberList(*src):
 	except ValueError as e:
 		raise Exception('Invalid json: {}'.format(e)) from None
 		CmdWin.insert(1.0, "\ndo_Join(): Sending message Error")
-		sktToRoomServer.close()	
-		_thread.start_new_thread (serverConnect, (updateMemberList, ))		#Start a new thread to make a connection with the room server
+		if sktToRoomServer:
+			sktToRoomServer.close()	
+		serverConnectThread=threading.Thread(target=serverConnect, args=(updateMemberList, )) #Start a new thread to make a connection with the room server and call updateMemberList again
+		serverConnectThread.setDaemon(True)
+		serverConnectThread.start()
 
 
 #This function calculates a hash value for each member in the list and store them in memberHashs
@@ -259,14 +273,12 @@ def serverProcedure():
 	sockfd = socket.socket()					#Create a socket
 	try:
 		sockfd.bind( ('', int(listeningPort)) )	
-		print("serverProcedure: Socket bind successfully")
 	except socket.error as emsg:
 		print("serverProcedure: Socket bind error: ", emsg)
 		sys.exit(1)
 	while sockfd:
 		sockfd.listen(5)
 		conn, address = sockfd.accept()
-		print ("Accepted connection from" + str(address))	
 		msg = conn.recv(1024)				
 		msg = str(msg.decode("ascii"))
 		
@@ -283,8 +295,7 @@ def serverProcedure():
 				
 				global memberList		
 				idx = -1	
-				try:
-					print(memberList)						
+				try:					
 					idx = memberList.index(initialPeer)									#Check whether the peer is in the member list
 				except ValueError:														#If we can't find the peer, update the member list
 					if updateMemberList("Server Procedure find peer"):		
@@ -306,7 +317,14 @@ def serverProcedure():
 					concatInfo = pUsername + pIP + pPort
 					backLinks.append(( (initialPeer, sdbm_hash(concatInfo)) ,conn ))		#Add the new peer to its backLinks 
 					clientStatus = "CONNECTED"											#Update status to CONNECTED 
-					_thread.start_new_thread (listenPeer, ("Backward", conn, ))			#Start a new thread to listen messages from this peer
+		
+					try:
+						listenPeerThread=threading.Thread(target=listenPeer, args=("Backward", conn, ))				##Start a new thread to listen for messages from client
+						listenPeerThread.setDaemon(True)
+						listenPeerThread.start()
+					except Exception:
+						print(traceback.format_exc())
+
 					CmdWin.insert(1.0, "\nAdd " + pUsername + " to backedLink")
 			else:
 				conn.close()
@@ -385,10 +403,9 @@ def handshake(peerSocket):
 		res = str(res.decode("ascii"))
 		if res:
 			if res[0] == 'S':													#S: successfully connected
-				CmdWin.insert(1.0, "\n handshake true")	
 				return True
 			else:
-				CmdWin.insert(1.0, "\n handshake false: return message is not S")	
+				CmdWin.insert(1.0, "\nhandshake failed")	
 				return False
 	except:
 		CmdWin.insert(1.0, "\n handshake false: send request faild")	
@@ -402,7 +419,6 @@ def findP2PPeer(memberList):
 	global myHashID
 	global forwardLink
 	myInfo = updateMemberHashs(memberList)								 							#myInfo is (name, IP, Port) of the current user
-	print(memberHashs)
 	start = memberHashs.index((myInfo, myHashID)) + 1					 							#Use myHashID to find the index X and start = X + 1
 	start = start % len(memberHashs)									 							#In case start is larger than the length of memberHashs 
 
@@ -425,7 +441,13 @@ def findP2PPeer(memberList):
 				if handshake(forwardSkt):															#P2PHandShake successfully
 					userStatus = "CONNECTED"														#Set up a connection successfully. Update user status
 					forwardLink = (memberHashs[start], forwardSkt)									#((name, IP, Port), forwardSkt)
-					_thread.start_new_thread(listenPeer, ("Forward", forwardSkt, ))					#Start a new thread to listen for messages from client
+					try:
+						listenPeerThread=threading.Thread(target=listenPeer, args=("Forward", forwardSkt, ))#Start a new thread to listen for messages from client
+						listenPeerThread.setDaemon(True)
+						listenPeerThread.start()
+					except Exception:
+						print(traceback.format_exc())
+
 					CmdWin.insert(1.0, "\nforward linked to " + memberHashs[start][0][0])			#If success, store connection
 					break
 				else:
@@ -464,18 +486,12 @@ def forward_Msg(originHID, originUsername, msgID, message):
 	global forwardLink
 	global backLinks
 	msg = "T:"+roomname+":"+str(originHID)+":"+originUsername+":"+str(msgID)+":"+str(len(message))+":"+message+"::\r\n"			#Create the message
-	if forwardLink:	
-		print("Forward link is: ")
-		print(forwardLink)										
+	if forwardLink:										
 		if str(forwardLink[0][1]) != str(originHID):				#Make sure the forward link is not the original sender
 			forwardLink[1].send(msg.encode("ascii"))				#Send message
-			CmdWin.insert(1.0, "\nSend " + message + " to forward link: ")
-	for link in backLinks:	
-		print("Backward link is: ")	
-		print(link)					
+	for link in backLinks:					
 		if str(link[0][1]) != str(originHID):						#Make sure the backward link is not the original sender
-			link[1].send(msg.encode("ascii"))	
-			CmdWin.insert(1.0, "\nSend" + message + " to backward link")		
+			link[1].send(msg.encode("ascii"))		
 
 #This class listens to Poke message
 class theListenThread(threading.Thread): 
@@ -501,13 +517,11 @@ class theListenThread(threading.Thread):
 			if udp_client_pair:
 				CmdWin.insert(1.0, "\n")
 				udp_client_msg = udp_client_pair[0].decode("ascii")
-				print(str(udp_client_msg))
 				udp_client_ip = udp_client_pair[1]
 				udp_client_name = udp_client_msg.split("::")[0].split(':')[2]
 				CmdWin.insert(1.0, "\nReceived a poke from " + udp_client_name)
 				MsgWin.insert(1.0, "\nYou are poked by [" + udp_client_name+ "] ")
 				udp_socket.sendto(udp_respond.encode("ascii"), udp_client_ip) #send reply
-	
 
 
 
@@ -559,23 +573,16 @@ def do_Quit():
 	global sktToRoomServer
 	global forwardLink
 	global backLinks
-	
-	#Close socket to the room server, to forward link if any, and to all the backlinked clients.
-	
-
+	#Close socket to the room server, to forward link and to all the backlinked clients.
 	if sktToRoomServer:
 		sktToRoomServer.close()
 		print("do_Quit(): Closed Socket to room server")
-		
 	if forwardLink:
 		forwardLink[1].close()
 		print("Quit: Closed Socket to Forward link")
-		
 	for back in backLinks:
 		back[1].close()
 		print("Quit: Closed Socket to Backward link")
-	
-
 	sys.exit(0)
 
 
@@ -639,7 +646,10 @@ def main():
 		serverIP = sys.argv[1]
 		serverPort = sys.argv[2]
 		listeningPort= sys.argv[3]
-		_thread.start_new_thread(serverConnect, (do_User,))	#Create a new thread for connecting server
+
+		serverConnectThread=threading.Thread(target=serverConnect, args=(do_User,)) #Create a new thread for connecting server
+		serverConnectThread.setDaemon(True)
+		serverConnectThread.start()
 
 	win.mainloop()
 
