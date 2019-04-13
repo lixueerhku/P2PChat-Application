@@ -124,6 +124,7 @@ def do_Join():
 	global memberList
 	global memberListHash 
 	
+	
 	if username == "": 															#Check whether the user name is set
 		CmdWin.insert(1.0, "\nPlease set username before joining chatroom")
 		return
@@ -162,8 +163,12 @@ def do_Join():
 					_thread.start_new_thread (serverProcedure, ())				#Start a new thread runnning the serverProcedure
 					#_thread.start_new_thread (UDPserver, ())					#Start a new thread runnning the UDP server
 					findP2PPeer(memberList)										#Select a P2PChat peer for initiating a TCP connection
-					threadListen = theListenThread()
-					threadListen.start()
+					try:
+						threadListen = theListenThread()
+						threadListen.daemon=True
+						threadListen.start()
+					except (KeyboardInterrupt, SystemExit):
+  						print ("\n! Received keyboard interrupt, quitting threads.\n")
 
 				elif res[0] == "F":												#Get an error message from the server
 					res = res[2:-4]
@@ -502,6 +507,7 @@ class theListenThread(threading.Thread):
 				CmdWin.insert(1.0, "\nReceived a poke from " + udp_client_name)
 				MsgWin.insert(1.0, "\nYou are poked by [" + udp_client_name+ "] ")
 				udp_socket.sendto(udp_respond.encode("ascii"), udp_client_ip) #send reply
+	
 
 
 
@@ -553,16 +559,23 @@ def do_Quit():
 	global sktToRoomServer
 	global forwardLink
 	global backLinks
+	
 	#Close socket to the room server, to forward link if any, and to all the backlinked clients.
+	
+
 	if sktToRoomServer:
 		sktToRoomServer.close()
 		print("do_Quit(): Closed Socket to room server")
+		
 	if forwardLink:
 		forwardLink[1].close()
 		print("Quit: Closed Socket to Forward link")
+		
 	for back in backLinks:
 		back[1].close()
 		print("Quit: Closed Socket to Backward link")
+	
+
 	sys.exit(0)
 
 
